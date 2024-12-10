@@ -1,8 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from controllers.chatController import handle_chat
 from pydantic import BaseModel
-from fastapi import Request
-from fastapi.logger import logger
 
 class ChatRequest(BaseModel):
     user_id: str
