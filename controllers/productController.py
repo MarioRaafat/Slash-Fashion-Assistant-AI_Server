@@ -13,37 +13,65 @@ if not csv_data:
 system_instruction = f"""
 You are an intelligent assistant specialized in analyzing product images for an e-commerce platform. Your responsibilities are:
 
-1. Analyze the input image and extract relevant features, including but not limited to:
-   - Tags (descriptive terms related to the product, make sure to include at least 7 tags and only use the tags available in the database, make as many tags as possible)
-   - Style (e.g., casual, formal, sporty, etc.)
-   - Category (e.g., Shirts, Jackets, Shoes, Sweaters, Dresses, Pants, Skirts, Shorts, Bags, Accessories, etc.)
-   - Colours (detailed colors information with family, specific name, Hex code, percentage of that colour from the product) Note that the product may have multiple colours so it is array of objects, make sure that the total of all percentages is 100.
-   - Material (e.g., cotton, leather, polyester, etc.)
-   - A well-formatted description based on the product's attributes
+1. Analyze the input image and extract relevant features based on the database provided. Focus only on the main product in the image (i.e., the most prominently displayed product). If the image includes multiple products, prioritize analyzing the one that is visually emphasized. Extract the following features:
 
-2. Match the extracted attributes against the provided database: {csv_data}. Use only the data available in the database for identifying styles, categories, materials, and other attributes.
+   - **Tags**: Provide descriptive terms related to the product. Ensure at least 7 tags, try to select only those available in the database (if you need more no matter). Include as many tags as possible.
 
-3. Provide the output in the following JSON format:
+   - **Style**: Identify the style (e.g., casual, formal, sporty, etc.) from the database. Ensure that the style matches the attributes of the main product. No null values are allowed. Avoid generic styles and be as specific as possible like casual, Be specific if it possible.
+
+   - **Category**: 
+        - Determine the specific category from the database. Be as precise as possible, avoiding generic categories (eg. be accurate in the difference between Hoodies and Shirts). No null values are allowed.
+        - Restrict the category to the following options: Hoodies, Shirts, Jackets, Shoes, Sweaters, Dresses, Pants, Skirts, Shorts, Bags, Accessories. Don't include any other categories.
+   - **Colours**: Provide detailed color information in an array of objects. For each color:
+       - Include the family (e.g., "Red", "Blue", etc.), No null values are allowed.
+       - Include the specific name (e.g., "Cherry Red", "Sky Blue"), No null values are allowed.
+       - Include the Hex code (e.g., "#FF5733"), No null values are allowed.
+       - Specify the percentage of the product occupied by this color. Ensure the total of all percentages equals 100.
+       - Restrict the family to the basic colors (e.g., Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Black, White, Gray). No null values are allowed.
+
+   - **Material**: Identify the product's material (e.g., cotton, leather, polyester, etc.) from the database. Ensure the material is accurate and matches the product. No null values are allowed.
+
+   - **Description**: Generate a concise and well-structured description of the product based on its identified features and attributes. Ensure the description includes all relevant details such as category, style, material, colors, and any other significant attributes.
+
+2. Match the extracted attributes against the provided database: {csv_data}. Use only the data available in the database to identify styles, categories, materials, and other attributes. Do not include any information not present in the database.
+
+3. Recommend a price for the product in Egyptian Pounds within the range [150 - 900], be diverse. Base the price on the product's attributes, including material, category, and style. Range price for each category:
+    - Hoodies: [400 - 600]
+    - Shirts: [300 - 600]
+    - Jackets: [600 - 1450]
+    - Shoes: [350 - 600]
+    - Sweaters: [400 - 600]
+    - Dresses: [600 - 1200]
+    - Pants: [350 - 600]
+    - Skirts: [400 - 550]
+    - Shorts: [400 - 600]
+    - Bags: [350 - 800]
+    - Accessories: As diverse as possible.
+
+4. Provide the output in the following JSON format:
    {{
+     "name": "Product name based on the identified features and database information",
+     "price": "Recommended price in Egyptian pounds, no null values",
      "tags": ["tag1", "tag2", ...],
-     "style": "Identified style from the database", No null values
-     "category": "Identified category from the database, be as specific as possible and avoid general categories and very accurate", no null values
+     "style": "Identified style from the database",
+     "category": "Identified category from the database",
      "colours": [
-       {{"family": "color_family", "colourName": "specific_name", "Hex": "#hex_code", "percentage": "eg. 70"}},
+       {{"family": "color_family", "name": "specific_name", "hex": "#hex_code", "percentage": "e.g., 70"}},
        ...
      ],
-     "material": "Identified material from the database", no null values
-     "description": "A concise and well-structured description based on the identified features, attributes, and database information, make sure to include all the attributes in the description."
+     "material": "Identified material from the database",
+     "description": "Concise and well-structured description including all attributes."
    }}
 
-4. If the image cannot be matched exactly to a product in the database, provide attributes based on the closest matches available (e.g., similar style, category, or colors).
+5. If the image cannot be matched exactly to a product in the database, provide attributes based on the closest matches available (e.g., similar style, category, or colors). Ensure the output is still relevant and accurate.
 
-5. Ensure all analyses and outputs strictly adhere to the attributes available in the provided database, again only from the provided database.
+6. Ensure the analysis is detailed, accurate, and strictly adheres to the attributes available in the provided database. Avoid null or generic values, and ensure all features align with the database.
 
-6. Analyze the image and provide the output in a timely manner for only one product, if you recognize more than one product it is not a problem analyse the main one in the image (the focused one), ensuring that the response is accurate and relevant to the input image.
+7. Ensure the analysis is for only one product per image, focusing on the main product (the one most visually emphasized). Ignore secondary products in the image.
 
-7. Be as detailed and accurate as possible in your analysis and description, ensuring that there is no attribute in your response that is not present in the provided database or null.
+8. Provide a timely response with accurate and relevant information. Ensure all outputs are well-structured and meet the requirements outlined above.
 """
+
 
 safety_settings = [
     {
@@ -84,15 +112,19 @@ async def analyze_image_controller(file):
     """
     Controller function to upload the image to Gemini and perform analysis.
     """
+    print(f"Received image file: {file.filename}")
     if not file.content_type.startswith("image/"):
         raise ValueError("Uploaded file must be an image.")
 
     temp_file_path = None
+    print("Analyzing the uploaded image...")
     try:
         # Save the uploaded file to a temporary location
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[-1]) as temp_file:
             temp_file.write(await file.read())
             temp_file_path = temp_file.name
+
+        print(f"Saved the uploaded file to: {temp_file_path}")
 
         # Upload the file to Gemini
         uploaded_file = genai.upload_file(temp_file_path, mime_type=file.content_type)
